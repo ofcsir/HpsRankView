@@ -94,6 +94,19 @@ function movement(item) {
   return '<span class="movement same">–</span>';
 }
 
+function overviewChart(values) {
+  const width = 920, height = 220, left = 48, right = 30, top = 34, bottom = 42;
+  const min = Math.min(...values), max = Math.max(...values);
+  const padding = Math.max((max - min) * 0.18, 1);
+  const chartMin = Math.max(0, min - padding), chartMax = max + padding, range = chartMax - chartMin;
+  const x = index => left + index * ((width - left - right) / Math.max(values.length - 1, 1));
+  const y = value => top + (chartMax - value) / range * (height - top - bottom);
+  const points = values.map((value, index) => `${x(index)},${y(value)}`).join(' ');
+  const area = `${left},${height - bottom} ${points} ${x(values.length - 1)},${height - bottom}`;
+  const gridValues = [chartMin, (chartMin + chartMax) / 2, chartMax];
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="전체 항목 개수 추이"><defs><linearGradient id="trend-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#3056d3" stop-opacity=".22"/><stop offset="100%" stop-color="#3056d3" stop-opacity="0"/></linearGradient></defs>${gridValues.map(value => `<line class="chart-grid" x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}"/><text class="chart-axis" x="${left - 9}" y="${y(value) + 4}">${formatNumber.format(Math.round(value))}</text>`).join('')}<polygon class="chart-area" points="${area}"/><polyline class="chart-line" points="${points}"/>${values.map((value, index) => `<circle class="chart-dot" cx="${x(index)}" cy="${y(value)}" r="5"/><text class="chart-value" x="${x(index)}" y="${y(value) - 14}">${formatNumber.format(value)}</text><text class="chart-label" x="${x(index)}" y="${height - 14}">${dates[index] ?? `집계 ${index + 1}`}</text>`).join('')}</svg>`;
+}
+
 function render() {
   let items = rankingData.filter(item => item.name.toLowerCase().includes(state.query.toLowerCase()));
   if (state.sortByMovement) items = [...items].sort((a, b) => Math.abs(change(b) ?? 0) - Math.abs(change(a) ?? 0));
@@ -103,10 +116,11 @@ function render() {
 }
 
 function renderSummary() {
-  const biggest = [...rankingData].filter(item => change(item) !== null).sort((a, b) => change(b) - change(a))[0];
-  document.querySelector('#total-items').textContent = `${rankingData.length}개`;
-  document.querySelector('#top-item').textContent = rankingData[0]?.name ?? '–';
-  document.querySelector('#biggest-rise').textContent = biggest && change(biggest) > 0 ? `${biggest.name} ▲ ${change(biggest)}` : '–';
+  const totals = [0, 1].map(index => rankingData.reduce((sum, item) => sum + item.trend[index], 0));
+  const totalDifference = totals.at(-1) - totals[0];
+  document.querySelector('#total-change').textContent = totalDifference >= 0 ? `▲ ${formatNumber.format(totalDifference)}개 증가` : `▼ ${formatNumber.format(Math.abs(totalDifference))}개 감소`;
+  document.querySelector('#total-change').className = `total-change ${totalDifference < 0 ? 'down' : ''}`;
+  document.querySelector('#overview-graph').innerHTML = overviewChart(totals);
   document.querySelector('#page-title').textContent = dashboardTitle;
   document.querySelector('#page-description').textContent = dates.length > 1 ? `${dates[0]} 대비 ${dates.at(-1)} 기준 순위 변화와 개수 추이입니다.` : '순위 변화와 수치를 빠르게 확인하세요.';
   document.querySelector('#updated-at').textContent = dates.at(-1) ? `최근 집계 ${dates.at(-1)}` : '';
