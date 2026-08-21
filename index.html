@@ -9,26 +9,17 @@
   </head>
   <body>
     <header class="site-header">
-      <a class="brand" href="#top" aria-label="순위 대시보드 홈">Rank<span>View</span></a>
-      <p id="updated-at" class="updated-at"></p>
+      <div class="header-inner">
+        <a class="brand-logo" href="#top" aria-label="홈으로 이동">
+          <img src="logo.webp" alt="로고" class="header-logo-img" />
+        </a>
+        <p id="updated-at" class="updated-at"></p>
+      </div>
     </header>
 
     <main id="top" class="page-shell">
       <section class="hero" aria-labelledby="page-title">
-        <p class="eyebrow">RANKING DASHBOARD</p>
-        <h1 id="page-title">한눈에 보는 항목별 순위</h1>
-        <p id="page-description">업데이트: 2026/08/20</p>
-      </section>
-
-      <section class="overview-chart" aria-labelledby="overview-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">TOTAL TREND</p>
-            <h2 id="overview-title">전체 항목 개수 추이</h2>
-          </div>
-          <strong id="total-change" class="total-change"></strong>
-        </div>
-        <div id="overview-graph" class="overview-graph" aria-live="polite"></div>
+        <h1 id="page-title">핱페스 포타 개수 순위</h1>
       </section>
 
       <section class="controls" aria-label="순위 목록 필터">
@@ -42,7 +33,6 @@
       <section class="ranking-section" aria-labelledby="ranking-title">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">CURRENT RANKING</p>
             <h2 id="ranking-title">현재 순위</h2>
           </div>
           <span id="result-count" class="result-count"></span>
@@ -56,6 +46,21 @@
           </table>
         </div>
         <p id="empty-state" class="empty-state" hidden>검색 결과가 없습니다.</p>
+      </section>
+
+      <section class="overview-chart" aria-labelledby="overview-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="overview-title">항목별 개수 추이</h2>
+          </div>
+          <div class="chart-filter-group" id="chart-filter-group" role="group" aria-label="추이 그래프 보기 필터">
+            <button type="button" class="filter-chip active" data-count="10">TOP 10</button>
+            <button type="button" class="filter-chip" data-count="5">TOP 5</button>
+            <button type="button" class="filter-chip" data-count="all">전체</button>
+          </div>
+        </div>
+        <div id="overview-graph" class="overview-graph" aria-live="polite"></div>
+        <div id="chart-legend" class="chart-legend" aria-label="항목 범례"></div>
       </section>
     </main>
     <footer>© <span id="year"></span> RankView</footer>

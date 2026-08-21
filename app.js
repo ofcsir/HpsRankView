@@ -77,6 +77,20 @@ function parseSource(text) {
   };
 }
 
+const palette = [
+  '#3056d3', '#059669', '#d97706', '#dc2626', '#8b5cf6',
+  '#06b6d4', '#ec4899', '#f97316', '#6366f1', '#14b8a6',
+  '#b91c1c', '#047857', '#b45309', '#6d28d9', '#0369a1',
+  '#be185d', '#c2410c', '#4338ca', '#0f766e'
+];
+
+let activeChartLimit = '10';
+let hoveredItemName = null;
+
+function getItemColor(index) {
+  return palette[index % palette.length];
+}
+
 function change(item) { return item.previousRank === null ? null : item.previousRank - item.rank; }
 
 function sparkline(values) {
@@ -94,17 +108,116 @@ function movement(item) {
   return '<span class="movement same">–</span>';
 }
 
-function overviewChart(values) {
-  const width = 920, height = 220, left = 48, right = 30, top = 34, bottom = 42;
-  const min = Math.min(...values), max = Math.max(...values);
-  const padding = Math.max((max - min) * 0.18, 1);
-  const chartMin = Math.max(0, min - padding), chartMax = max + padding, range = chartMax - chartMin;
-  const x = index => left + index * ((width - left - right) / Math.max(values.length - 1, 1));
-  const y = value => top + (chartMax - value) / range * (height - top - bottom);
-  const points = values.map((value, index) => `${x(index)},${y(value)}`).join(' ');
-  const area = `${left},${height - bottom} ${points} ${x(values.length - 1)},${height - bottom}`;
-  const gridValues = [chartMin, (chartMin + chartMax) / 2, chartMax];
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="전체 항목 개수 추이"><defs><linearGradient id="trend-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#3056d3" stop-opacity=".22"/><stop offset="100%" stop-color="#3056d3" stop-opacity="0"/></linearGradient></defs>${gridValues.map(value => `<line class="chart-grid" x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}"/><text class="chart-axis" x="${left - 9}" y="${y(value) + 4}">${formatNumber.format(Math.round(value))}</text>`).join('')}<polygon class="chart-area" points="${area}"/><polyline class="chart-line" points="${points}"/>${values.map((value, index) => `<circle class="chart-dot" cx="${x(index)}" cy="${y(value)}" r="5"/><text class="chart-value" x="${x(index)}" y="${y(value) - 14}">${formatNumber.format(value)}</text><text class="chart-label" x="${x(index)}" y="${height - 14}">${dates[index] ?? `집계 ${index + 1}`}</text>`).join('')}</svg>`;
+function itemTrendChart(items, filterLimit) {
+  let displayed = items;
+  if (filterLimit === '5') displayed = items.slice(0, 5);
+  else if (filterLimit === '10') displayed = items.slice(0, 10);
+
+  const width = 920, height = 400;
+  const left = 60, right = 240, top = 35, bottom = 50;
+
+  const allVals = displayed.flatMap(i => i.trend);
+  const maxVal = Math.max(...allVals, 10);
+  const chartMax = Math.ceil(maxVal * 1.08 / 50) * 50 || 100;
+  const chartMin = 0;
+  const range = chartMax - chartMin;
+
+  const x0 = left;
+  const x1 = width - right;
+  const y = val => top + (chartMax - val) / range * (height - top - bottom);
+
+  const ticks = [0, Math.round(chartMax * 0.25), Math.round(chartMax * 0.5), Math.round(chartMax * 0.75), chartMax];
+  const gridHtml = ticks.map(t => {
+    const yPos = y(t);
+    return `<line class="chart-grid" x1="${left}" x2="${x1}" y1="${yPos}" y2="${yPos}"/><text class="chart-axis" x="${left - 8}" y="${yPos + 4}">${formatNumber.format(t)}</text>`;
+  }).join('');
+
+  const dateLabelsHtml = `
+    <line class="date-guide" x1="${x0}" x2="${x0}" y1="${top - 10}" y2="${height - bottom}" stroke="#d7dce7" stroke-dasharray="3,3"/>
+    <line class="date-guide" x1="${x1}" x2="${x1}" y1="${top - 10}" y2="${height - bottom}" stroke="#d7dce7" stroke-dasharray="3,3"/>
+    <text class="chart-label date-title" x="${x0}" y="${height - 14}">${dates[0] ?? '이전 집계'}</text>
+    <text class="chart-label date-title" x="${x1}" y="${height - 14}">${dates[1] ?? '최근 집계'}</text>
+  `;
+
+  const minGap = 20;
+  const minY = top + 10;
+  const maxY = height - bottom - 10;
+
+  const labelPositions = displayed.map(item => ({
+    name: item.name,
+    y0: y(item.trend[0]),
+    y1: y(item.trend[1]),
+    labelY: y(item.trend[1])
+  })).sort((a, b) => a.y1 - b.y1);
+
+  for (let pass = 0; pass < 20; pass++) {
+    for (let i = 1; i < labelPositions.length; i++) {
+      if (labelPositions[i].labelY < labelPositions[i - 1].labelY + minGap) {
+        labelPositions[i].labelY = labelPositions[i - 1].labelY + minGap;
+      }
+    }
+    if (labelPositions.length > 0 && labelPositions[labelPositions.length - 1].labelY > maxY) {
+      labelPositions[labelPositions.length - 1].labelY = maxY;
+      for (let i = labelPositions.length - 2; i >= 0; i--) {
+        if (labelPositions[i].labelY > labelPositions[i + 1].labelY - minGap) {
+          labelPositions[i].labelY = labelPositions[i + 1].labelY - minGap;
+        }
+      }
+    }
+  }
+
+  const labelYMap = new Map(labelPositions.map(lp => [lp.name, lp.labelY]));
+
+  const linesHtml = displayed.map((item, idx) => {
+    const color = getItemColor(idx);
+    const v0 = item.trend[0];
+    const v1 = item.trend[1];
+    const y0 = y(v0);
+    const y1 = y(v1);
+    const adjustedLabelY = labelYMap.get(item.name) ?? y1;
+
+    const isHovered = hoveredItemName === item.name;
+    const isOtherHovered = hoveredItemName && !isHovered;
+    const opacity = isOtherHovered ? 0.15 : 1;
+    const strokeWidth = isHovered ? 3.8 : 2.5;
+
+    const leaderLine = Math.abs(adjustedLabelY - y1) > 2 ? `
+      <path d="M ${x1 + 3} ${y1} Q ${x1 + 7} ${(y1 + adjustedLabelY) / 2} ${x1 + 10} ${adjustedLabelY}" fill="none" stroke="${color}" stroke-width="1" stroke-dasharray="2,2" opacity="0.6"/>
+    ` : '';
+
+    return `
+      <g class="item-trend-group ${isHovered ? 'hovered' : ''}" data-name="${item.name}" style="opacity: ${opacity}; transition: opacity 0.2s ease;">
+        <path d="M ${x0} ${y0} L ${x1} ${y1}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" class="trend-path"/>
+        <circle cx="${x0}" cy="${y0}" r="${isHovered ? 5.5 : 4}" fill="${color}" class="trend-dot"/>
+        <circle cx="${x1}" cy="${y1}" r="${isHovered ? 5.5 : 4}" fill="${color}" class="trend-dot"/>
+        <text x="${x0 - 8}" y="${y0 + 4}" text-anchor="end" class="val-label start-val" fill="#65708a">${formatNumber.format(v0)}</text>
+        ${leaderLine}
+        <text x="${x1 + 12}" y="${adjustedLabelY + 4}" text-anchor="start" class="val-label end-val" fill="${color}" font-weight="${isHovered ? '800' : '650'}">${item.name} (${formatNumber.format(v1)})</text>
+      </g>
+    `;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="항목별 개수 추이 그래프">${gridHtml}${dateLabelsHtml}${linesHtml}</svg>`;
+}
+
+function renderChartLegend(displayedItems) {
+  const legendEl = document.querySelector('#chart-legend');
+  if (!legendEl) return;
+
+  legendEl.innerHTML = displayedItems.map((item, idx) => {
+    const color = getItemColor(idx);
+    const isHovered = hoveredItemName === item.name;
+    const diff = item.trend[1] - item.trend[0];
+    const diffStr = diff >= 0 ? `+${formatNumber.format(diff)}` : `${formatNumber.format(diff)}`;
+    return `
+      <button type="button" class="legend-pill ${isHovered ? 'active' : ''}" data-name="${item.name}">
+        <span class="legend-color" style="background-color: ${color}"></span>
+        <span class="legend-name">${item.name}</span>
+        <span class="legend-val">${formatNumber.format(item.value)}</span>
+        <span class="legend-diff ${diff >= 0 ? 'up' : 'down'}">${diffStr}</span>
+      </button>
+    `;
+  }).join('');
 }
 
 function render() {
@@ -116,14 +229,56 @@ function render() {
 }
 
 function renderSummary() {
-  const totals = [0, 1].map(index => rankingData.reduce((sum, item) => sum + item.trend[index], 0));
-  const totalDifference = totals.at(-1) - totals[0];
-  document.querySelector('#total-change').textContent = totalDifference >= 0 ? `▲ ${formatNumber.format(totalDifference)}개 증가` : `▼ ${formatNumber.format(Math.abs(totalDifference))}개 감소`;
-  document.querySelector('#total-change').className = `total-change ${totalDifference < 0 ? 'down' : ''}`;
-  document.querySelector('#overview-graph').innerHTML = overviewChart(totals);
+  let displayedItems = rankingData;
+  if (activeChartLimit === '5') displayedItems = rankingData.slice(0, 5);
+  else if (activeChartLimit === '10') displayedItems = rankingData.slice(0, 10);
+
+  document.querySelector('#overview-graph').innerHTML = itemTrendChart(rankingData, activeChartLimit);
+  renderChartLegend(displayedItems);
   document.querySelector('#page-title').textContent = dashboardTitle;
-  document.querySelector('#page-description').textContent = dates.length > 1 ? `${dates[0]} 대비 ${dates.at(-1)} 기준 순위 변화와 개수 추이입니다.` : '순위 변화와 수치를 빠르게 확인하세요.';
   document.querySelector('#updated-at').textContent = dates.at(-1) ? `최근 집계 ${dates.at(-1)}` : '';
+}
+
+function setupChartEvents() {
+  const filterGroup = document.querySelector('#chart-filter-group');
+  if (filterGroup) {
+    filterGroup.addEventListener('click', event => {
+      const btn = event.target.closest('.filter-chip');
+      if (!btn) return;
+      filterGroup.querySelectorAll('.filter-chip').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeChartLimit = btn.dataset.count;
+      renderSummary();
+    });
+  }
+
+  const overviewGraph = document.querySelector('#overview-graph');
+  const chartLegend = document.querySelector('#chart-legend');
+
+  const handleHover = (name) => {
+    if (hoveredItemName === name) return;
+    hoveredItemName = name;
+    renderSummary();
+  };
+
+  const handleUnhover = () => {
+    if (hoveredItemName === null) return;
+    hoveredItemName = null;
+    renderSummary();
+  };
+
+  [overviewGraph, chartLegend].forEach(el => {
+    if (!el) return;
+    el.addEventListener('mouseover', event => {
+      const target = event.target.closest('[data-name]');
+      if (target) {
+        handleHover(target.dataset.name);
+      }
+    });
+    el.addEventListener('mouseleave', () => {
+      handleUnhover();
+    });
+  });
 }
 
 function initialize(text) {
@@ -137,5 +292,6 @@ function initialize(text) {
 
 document.querySelector('#search').addEventListener('input', event => { state.query = event.target.value; render(); });
 document.querySelector('#sort-button').addEventListener('click', event => { state.sortByMovement = !state.sortByMovement; event.currentTarget.setAttribute('aria-pressed', state.sortByMovement); render(); });
+setupChartEvents();
 initialize(fallbackText);
 fetch('data/ranking.txt').then(response => response.ok ? response.text() : Promise.reject()).then(initialize).catch(() => {});
