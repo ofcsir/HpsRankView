@@ -281,6 +281,148 @@ function setupChartEvents() {
   });
 }
 
+
+const SHEET_ID = '1KYIp9NPtnEp5LISgJVBEPPNCIseCivPSVRRj2uQrBcA';
+const SHEET_URL = name => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i], next = text[i + 1];
+    if (ch === '"' && quoted && next === '"') { cell += '"'; i++; continue; }
+    if (ch === '"') { quoted = !quoted; continue; }
+    if (ch === ',' && !quoted) { row.push(cell.trim()); cell = ''; continue; }
+    if ((ch === '\n' || ch === '\r') && !quoted) {
+      if (ch === '\r' && next === '\n') i++;
+      row.push(cell.trim()); cell = '';
+      if (row.some(v => v !== '')) rows.push(row);
+      row = [];
+      continue;
+    }
+    cell += ch;
+  }
+  if (cell || row.length) { row.push(cell.trim()); if (row.some(v => v !== '')) rows.push(row); }
+  return rows;
+}
+
+function numberValue(v) {
+  const n = Number(String(v ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function looksLikeDate(v) {
+  return /\d{2,4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}/.test(String(v ?? '')) ||
+    /\d{1,2}월\s*\d{1,2}일/.test(String(v ?? ''));
+}
+
+function normalizeDate(v) {
+  const s = String(v ?? '').trim();
+  const m = s.match(/(\d{2,4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})/);
+  if (m) return `${m[1].slice(-2)}. ${Number(m[2])}. ${Number(m[3])}.`;
+  return s.replace(/\s+/g, ' ');
+}
+
+function buildSheetData(rows) {
+  const dateCol = rows.findIndex(r => r.some(looksLikeDate));
+  if (dateCol < 0) throw new Error('날짜 행을 찾을 수 없습니다.');
+
+  const dateRowIndex = rows.findIndex(r => r.some(looksLikeDate));
+  const headerRows = rows.slice(0, dateRowIndex);
+  const dataRows = rows.slice(dateRowIndex).filter(r => looksLikeDate(r[0]) || r.some((v, i) => i === 0 && looksLikeDate(v)));
+
+  const header = [];
+  const maxCols = Math.max(...rows.map(r => r.length));
+  for (let c = 0; c < maxCols; c++) {
+    let value = '';
+    for (const r of headerRows) if (r[c]) { value = r[c]; break; }
+    header[c] = value.trim();
+  }
+
+  const snapshots = dataRows.map(row => {
+    const values = [];
+    for (let c = 1; c + 2 < maxCols; c += 3) {
+      const code = header[c] || header[c - 1] || header[c + 1] || '';
+      if (!code || /합계|리버스/.test(code)) continue;
+      const a = numberValue(row[c]);
+      const reverse = numberValue(row[c + 1]);
+      const b = numberValue(row[c + 2]);
+      if (a || reverse || b) values.push({ name: code, forward: a, reverse, backward: b, value: a + reverse + b });
+    }
+    return { date: normalizeDate(row[0]), values };
+  }).filter(s => s.values.length);
+
+  if (!snapshots.length) throw new Error('포타 개수 데이터를 찾을 수 없습니다.');
+  return snapshots;
+}
+
+function calculateRankingSnapshots(snapshots) {
+  return snapshots.map(snapshot => {
+    const sorted = [...snapshot.values].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+    return { date: snapshot.date, ranking: sorted.map((x, i) => ({ ...x, rank: i + 1 })) };
+  });
+}
+
+function renderMemberStats(cpInfoRows, latestSnapshot) {
+  const el = document.querySelector('#member-stats-body');
+  if (!el) return;
+
+  const members = new Map();
+  for (const row of cpInfoRows) {
+    const code = String(row[0] ?? '').trim();
+    const left = String(row[1] ?? '').trim();
+    const right = String(row[3] ?? '').trim();
+    if (!code || !left || !right || /cp|멤버/i.test(code)) continue;
+    if (!members.has(left)) members.set(left, { total: 0, left: 0, right: 0 });
+    if (!members.has(right)) members.set(right, { total: 0, left: 0, right: 0 });
+
+    const cp = latestSnapshot.values.find(x => x.name === code);
+    if (!cp) continue;
+    const total = cp.value;
+    members.get(left).total += total;
+    members.get(right).total += total;
+    members.get(left).left += cp.forward + cp.reverse;
+    members.get(left).right += cp.backward + cp.reverse;
+    members.get(right).left += cp.backward + cp.reverse;
+    members.get(right).right += cp.forward + cp.reverse;
+  }
+
+  const sorted = [...members.entries()].sort((a, b) => b[1].total - a[1].total);
+  el.innerHTML = sorted.map(([name, x]) => {
+    const sum = x.left + x.right;
+    const leftPct = sum ? x.left / sum * 100 : 0;
+    const rightPct = sum ? x.right / sum * 100 : 0;
+    return `<tr><td>${name}</td><td>${formatNumber.format(x.total)}</td><td>${leftPct.toFixed(1)}%</td><td>${rightPct.toFixed(1)}%</td></tr>`;
+  }).join('');
+}
+
+async function loadGoogleSheet() {
+  const [rankingRes, infoRes] = await Promise.all([
+    fetch(SHEET_URL('포타 개수')),
+    fetch(SHEET_URL('CP 정보'))
+  ]);
+  if (!rankingRes.ok || !infoRes.ok) throw new Error('Google Sheets를 불러오지 못했습니다.');
+
+  const [rankingText, infoText] = await Promise.all([rankingRes.text(), infoRes.text()]);
+  const snapshots = calculateRankingSnapshots(buildSheetData(parseCsv(rankingText)));
+  const infoRows = parseCsv(infoText);
+
+  const previous = snapshots.at(-2)?.ranking ?? [];
+  const current = snapshots.at(-1)?.ranking ?? [];
+  const previousByName = new Map(previous.map(item => [item.name, item]));
+
+  rankingData = current.map(item => ({
+    ...item,
+    previousRank: previousByName.get(item.name)?.rank ?? null,
+    trend: [previousByName.get(item.name)?.value ?? 0, item.value]
+  }));
+  dates = [snapshots.at(-2)?.date ?? '이전 집계', snapshots.at(-1)?.date ?? '최근 집계'];
+  dashboardTitle = '핱페스 포타 개수 순위';
+  renderSummary();
+  render();
+  renderMemberStats(infoRows, snapshots.at(-1));
+}
+
 function initialize(text) {
   const parsed = parseSource(text);
   rankingData = parsed.data;
@@ -294,4 +436,4 @@ document.querySelector('#search').addEventListener('input', event => { state.que
 document.querySelector('#sort-button').addEventListener('click', event => { state.sortByMovement = !state.sortByMovement; event.currentTarget.setAttribute('aria-pressed', state.sortByMovement); render(); });
 setupChartEvents();
 initialize(fallbackText);
-fetch('data/ranking.txt').then(response => response.ok ? response.text() : Promise.reject()).then(initialize).catch(() => {});
+loadGoogleSheet().catch(error => console.error('Google Sheets load failed:', error));
