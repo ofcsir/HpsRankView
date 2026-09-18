@@ -95,9 +95,10 @@ function change(item) { return item.previousRank === null ? null : item.previous
 
 function sparkline(values) {
   const min = Math.min(...values), max = Math.max(...values), range = max - min || 1;
-  const points = values.map((value, index) => `${index * 104 + 2},${25 - ((value - min) / range) * 20}`).join(' ');
+  const lastIndex = Math.max(values.length - 1, 1);
+  const points = values.map((value, index) => `${2 + (index / lastIndex) * 104},${25 - ((value - min) / range) * 20}`).join(' ');
   const color = values.at(-1) >= values[0] ? '#168760' : '#d24444';
-  return `<svg class="sparkline" viewBox="0 0 108 28" aria-label="두 집계 시점의 수치 추이"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+  return `<svg class="sparkline" viewBox="0 0 108 28" aria-label="월별 누적 수치 추이"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
 }
 
 function movement(item) {
@@ -124,6 +125,8 @@ function itemTrendChart(items, filterLimit) {
 
   const x0 = left;
   const x1 = width - right;
+  const periodCount = Math.max(dates.length, 1);
+  const x = index => periodCount === 1 ? x0 : x0 + index / (periodCount - 1) * (x1 - x0);
   const y = val => top + (chartMax - val) / range * (height - top - bottom);
 
   const ticks = [0, Math.round(chartMax * 0.25), Math.round(chartMax * 0.5), Math.round(chartMax * 0.75), chartMax];
@@ -132,12 +135,13 @@ function itemTrendChart(items, filterLimit) {
     return `<line class="chart-grid" x1="${left}" x2="${x1}" y1="${yPos}" y2="${yPos}"/><text class="chart-axis" x="${left - 8}" y="${yPos + 4}">${formatNumber.format(t)}</text>`;
   }).join('');
 
-  const dateLabelsHtml = `
-    <line class="date-guide" x1="${x0}" x2="${x0}" y1="${top - 10}" y2="${height - bottom}" stroke="#d7dce7" stroke-dasharray="3,3"/>
-    <line class="date-guide" x1="${x1}" x2="${x1}" y1="${top - 10}" y2="${height - bottom}" stroke="#d7dce7" stroke-dasharray="3,3"/>
-    <text class="chart-label date-title" x="${x0}" y="${height - 14}">${dates[0] ?? '이전 집계'}</text>
-    <text class="chart-label date-title" x="${x1}" y="${height - 14}">${dates[1] ?? '최근 집계'}</text>
-  `;
+  const labelStep = Math.max(1, Math.ceil(periodCount / 6));
+  const labelIndexes = dates.map((_, index) => index)
+    .filter(index => index === 0 || index === periodCount - 1 || index % labelStep === 0);
+  const dateLabelsHtml = labelIndexes.map(index => `
+    <line class="date-guide" x1="${x(index)}" x2="${x(index)}" y1="${top - 10}" y2="${height - bottom}" stroke="#d7dce7" stroke-dasharray="3,3"/>
+    <text class="chart-label date-title" x="${x(index)}" y="${height - 14}">${dates[index]}</text>
+  `).join('');
 
   const minGap = 20;
   const minY = top + 10;
@@ -146,8 +150,8 @@ function itemTrendChart(items, filterLimit) {
   const labelPositions = displayed.map(item => ({
     name: item.name,
     y0: y(item.trend[0]),
-    y1: y(item.trend[1]),
-    labelY: y(item.trend[1])
+    y1: y(item.trend.at(-1)),
+    labelY: y(item.trend.at(-1))
   })).sort((a, b) => a.y1 - b.y1);
 
   for (let pass = 0; pass < 20; pass++) {
@@ -171,7 +175,7 @@ function itemTrendChart(items, filterLimit) {
   const linesHtml = displayed.map((item, idx) => {
     const color = getItemColor(idx);
     const v0 = item.trend[0];
-    const v1 = item.trend[1];
+    const v1 = item.trend.at(-1);
     const y0 = y(v0);
     const y1 = y(v1);
     const adjustedLabelY = labelYMap.get(item.name) ?? y1;
@@ -187,9 +191,8 @@ function itemTrendChart(items, filterLimit) {
 
     return `
       <g class="item-trend-group ${isHovered ? 'hovered' : ''}" data-name="${item.name}" style="opacity: ${opacity}; transition: opacity 0.2s ease;">
-        <path d="M ${x0} ${y0} L ${x1} ${y1}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" class="trend-path"/>
-        <circle cx="${x0}" cy="${y0}" r="${isHovered ? 5.5 : 4}" fill="${color}" class="trend-dot"/>
-        <circle cx="${x1}" cy="${y1}" r="${isHovered ? 5.5 : 4}" fill="${color}" class="trend-dot"/>
+        <polyline points="${item.trend.map((value, index) => `${x(index)},${y(value)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" class="trend-path"/>
+        ${item.trend.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="${index === item.trend.length - 1 ? (isHovered ? 5.5 : 4) : 2.6}" fill="${color}" class="trend-dot"><title>${dates[index]}: ${formatNumber.format(value)}</title></circle>`).join('')}
         <text x="${x0 - 8}" y="${y0 + 4}" text-anchor="end" class="val-label start-val" fill="#65708a">${formatNumber.format(v0)}</text>
         ${leaderLine}
         <text x="${x1 + 12}" y="${adjustedLabelY + 4}" text-anchor="start" class="val-label end-val" fill="${color}" font-weight="${isHovered ? '800' : '650'}">${item.name} (${formatNumber.format(v1)})</text>
@@ -207,7 +210,7 @@ function renderChartLegend(displayedItems) {
   legendEl.innerHTML = displayedItems.map((item, idx) => {
     const color = getItemColor(idx);
     const isHovered = hoveredItemName === item.name;
-    const diff = item.trend[1] - item.trend[0];
+    const diff = item.trend.at(-1) - (item.trend.at(-2) ?? 0);
     const diffStr = diff >= 0 ? `+${formatNumber.format(diff)}` : `${formatNumber.format(diff)}`;
     return `
       <button type="button" class="legend-pill ${isHovered ? 'active' : ''}" data-name="${item.name}">
@@ -312,7 +315,7 @@ function numberValue(v) {
 }
 
 function looksLikeDate(v) {
-  return /\d{2,4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}/.test(String(v ?? '')) ||
+  return /^\s*\d{4}[.\-/]\s*\d{1,2}(?:[.\-/]\s*\d{1,2})?\s*$/.test(String(v ?? '')) ||
     /\d{1,2}월\s*\d{1,2}일/.test(String(v ?? ''));
 }
 
@@ -320,37 +323,41 @@ function normalizeDate(v) {
   const s = String(v ?? '').trim();
   const m = s.match(/(\d{2,4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})/);
   if (m) return `${m[1].slice(-2)}. ${Number(m[2])}. ${Number(m[3])}.`;
+  const month = s.match(/(\d{4})[.\-/]\s*(\d{1,2})/);
+  if (month) return `${month[1].slice(-2)}. ${Number(month[2])}.`;
   return s.replace(/\s+/g, ' ');
 }
 
 function buildSheetData(rows) {
-  const dateCol = rows.findIndex(r => r.some(looksLikeDate));
-  if (dateCol < 0) throw new Error('날짜 행을 찾을 수 없습니다.');
-
   const dateRowIndex = rows.findIndex(r => r.some(looksLikeDate));
-  const headerRows = rows.slice(0, dateRowIndex);
-  const dataRows = rows.slice(dateRowIndex).filter(r => looksLikeDate(r[0]) || r.some((v, i) => i === 0 && looksLikeDate(v)));
+  if (dateRowIndex < 0) throw new Error('날짜 행을 찾을 수 없습니다.');
 
-  const header = [];
+  const header = rows[Math.max(0, dateRowIndex - 1)];
   const maxCols = Math.max(...rows.map(r => r.length));
-  for (let c = 0; c < maxCols; c++) {
-    let value = '';
-    for (const r of headerRows) if (r[c]) { value = r[c]; break; }
-    header[c] = value.trim();
-  }
+  const dataRows = rows.slice(dateRowIndex).filter(row => looksLikeDate(row[0]));
+  const running = new Map();
+  const snapshots = [];
 
-  const snapshots = dataRows.map(row => {
-    const values = [];
+  for (const row of dataRows) {
     for (let c = 1; c + 2 < maxCols; c += 3) {
-      const code = header[c] || header[c - 1] || header[c + 1] || '';
-      if (!code || /합계|리버스/.test(code)) continue;
-      const a = numberValue(row[c]);
-      const reverse = numberValue(row[c + 1]);
-      const b = numberValue(row[c + 2]);
-      if (a || reverse || b) values.push({ name: code, forward: a, reverse, backward: b, value: a + reverse + b });
+      const forwardCode = String(header[c] ?? '').trim();
+      const backwardCode = String(header[c + 2] ?? '').trim();
+      if (!forwardCode || !backwardCode || /합계|리버스/i.test(forwardCode)) continue;
+
+      const pairKey = [forwardCode, backwardCode].sort().join('|');
+      const current = running.get(pairKey) ?? { name: forwardCode, forward: 0, reverse: 0, backward: 0, value: 0 };
+      current.forward += numberValue(row[c]);
+      current.reverse += numberValue(row[c + 1]);
+      current.backward += numberValue(row[c + 2]);
+      current.value = current.forward + current.reverse + current.backward;
+      running.set(pairKey, current);
     }
-    return { date: normalizeDate(row[0]), values };
-  }).filter(s => s.values.length);
+
+    snapshots.push({
+      date: normalizeDate(row[0]),
+      values: [...running.values()].filter(item => item.value > 0).map(item => ({ ...item }))
+    });
+  }
 
   if (!snapshots.length) throw new Error('포타 개수 데이터를 찾을 수 없습니다.');
   return snapshots;
@@ -359,7 +366,7 @@ function buildSheetData(rows) {
 function calculateRankingSnapshots(snapshots) {
   return snapshots.map(snapshot => {
     const sorted = [...snapshot.values].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
-    return { date: snapshot.date, ranking: sorted.map((x, i) => ({ ...x, rank: i + 1 })) };
+    return { ...snapshot, ranking: sorted.map((x, i) => ({ ...x, rank: i + 1 })) };
   });
 }
 
@@ -368,16 +375,21 @@ function renderMemberStats(cpInfoRows, latestSnapshot) {
   if (!el) return;
 
   const members = new Map();
+  const infoByCode = new Map();
   for (const row of cpInfoRows) {
     const code = String(row[0] ?? '').trim();
     const left = String(row[1] ?? '').trim();
     const right = String(row[3] ?? '').trim();
     if (!code || !left || !right || /cp|멤버/i.test(code)) continue;
+    infoByCode.set(code, { left, right });
     if (!members.has(left)) members.set(left, { total: 0, left: 0, right: 0 });
     if (!members.has(right)) members.set(right, { total: 0, left: 0, right: 0 });
+  }
 
-    const cp = latestSnapshot.values.find(x => x.name === code);
-    if (!cp) continue;
+  for (const cp of latestSnapshot.values) {
+    const info = infoByCode.get(cp.name);
+    if (!info) continue;
+    const { left, right } = info;
     const total = cp.value;
     members.get(left).total += total;
     members.get(right).total += total;
@@ -414,9 +426,9 @@ async function loadGoogleSheet() {
   rankingData = current.map(item => ({
     ...item,
     previousRank: previousByName.get(item.name)?.rank ?? null,
-    trend: [previousByName.get(item.name)?.value ?? 0, item.value]
+    trend: snapshots.map(snapshot => snapshot.ranking.find(x => x.name === item.name)?.value ?? 0)
   }));
-  dates = [snapshots.at(-2)?.date ?? '이전 집계', snapshots.at(-1)?.date ?? '최근 집계'];
+  dates = snapshots.map(snapshot => snapshot.date);
   dashboardTitle = '핱페스 포타 개수 순위';
   renderSummary();
   render();
