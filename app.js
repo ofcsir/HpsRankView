@@ -345,7 +345,14 @@ function buildSheetData(rows) {
       if (!forwardCode || !backwardCode || /합계|리버스/i.test(forwardCode)) continue;
 
       const pairKey = [forwardCode, backwardCode].sort().join('|');
-      const current = running.get(pairKey) ?? { name: forwardCode, forward: 0, reverse: 0, backward: 0, value: 0 };
+      const current = running.get(pairKey) ?? {
+        name: forwardCode,
+        backwardName: backwardCode,
+        forward: 0,
+        reverse: 0,
+        backward: 0,
+        value: 0
+      };
       current.forward += numberValue(row[c]);
       current.reverse += numberValue(row[c + 1]);
       current.backward += numberValue(row[c + 2]);
@@ -355,7 +362,7 @@ function buildSheetData(rows) {
 
     snapshots.push({
       date: normalizeDate(row[0]),
-      values: [...running.values()].filter(item => item.value > 0).map(item => ({ ...item }))
+      values: [...running.values()].map(item => ({ ...item }))
     });
   }
 
@@ -365,7 +372,11 @@ function buildSheetData(rows) {
 
 function calculateRankingSnapshots(snapshots) {
   return snapshots.map(snapshot => {
-    const sorted = [...snapshot.values].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+    const directionalValues = snapshot.values.flatMap(item => [
+      { name: item.name, value: item.forward + item.reverse },
+      { name: item.backwardName, value: item.backward + item.reverse }
+    ]);
+    const sorted = directionalValues.sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
     return { ...snapshot, ranking: sorted.map((x, i) => ({ ...x, rank: i + 1 })) };
   });
 }
