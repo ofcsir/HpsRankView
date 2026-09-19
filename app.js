@@ -85,6 +85,7 @@ const palette = [
 ];
 
 let activeChartLimit = '10';
+let activeRankingLimit = '10';
 let hoveredItemName = null;
 
 function getItemColor(index) {
@@ -92,14 +93,6 @@ function getItemColor(index) {
 }
 
 function change(item) { return item.previousRank === null ? null : item.previousRank - item.rank; }
-
-function sparkline(values) {
-  const min = Math.min(...values), max = Math.max(...values), range = max - min || 1;
-  const lastIndex = Math.max(values.length - 1, 1);
-  const points = values.map((value, index) => `${2 + (index / lastIndex) * 104},${25 - ((value - min) / range) * 20}`).join(' ');
-  const color = values.at(-1) >= values[0] ? '#168760' : '#d24444';
-  return `<svg class="sparkline" viewBox="0 0 108 28" aria-label="월별 누적 수치 추이"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
-}
 
 function movement(item) {
   const value = change(item);
@@ -226,9 +219,24 @@ function renderChartLegend(displayedItems) {
 function render() {
   let items = rankingData.filter(item => item.name.toLowerCase().includes(state.query.toLowerCase()));
   if (state.sortByMovement) items = [...items].sort((a, b) => Math.abs(change(b) ?? 0) - Math.abs(change(a) ?? 0));
-  document.querySelector('#ranking-body').innerHTML = items.map(item => `<tr><td class="rank">${item.rank}</td><td class="item-name">${item.name}</td><td class="value">${formatNumber.format(item.value)}</td><td>${movement(item)}</td><td>${sparkline(item.trend)}</td></tr>`).join('');
-  document.querySelector('#result-count').textContent = `${items.length}개 항목`;
+  const totalCount = items.length;
+  if (activeRankingLimit !== 'all') items = items.slice(0, Number(activeRankingLimit));
+  document.querySelector('#ranking-body').innerHTML = items.map(item => `<tr><td class="rank">${item.rank}</td><td class="item-name">${item.name}</td><td class="value">${formatNumber.format(item.value)}</td><td>${movement(item)}</td></tr>`).join('');
+  document.querySelector('#result-count').textContent = activeRankingLimit === 'all' ? `${totalCount}개 항목` : `${items.length} / ${totalCount}개 항목`;
   document.querySelector('#empty-state').hidden = items.length !== 0;
+}
+
+function setupRankingEvents() {
+  const filterGroup = document.querySelector('#ranking-filter-group');
+  if (!filterGroup) return;
+  filterGroup.addEventListener('click', event => {
+    const btn = event.target.closest('.filter-chip');
+    if (!btn) return;
+    filterGroup.querySelectorAll('.filter-chip').forEach(button => button.classList.remove('active'));
+    btn.classList.add('active');
+    activeRankingLimit = btn.dataset.count;
+    render();
+  });
 }
 
 function renderSummary() {
@@ -458,5 +466,6 @@ function initialize(text) {
 document.querySelector('#search').addEventListener('input', event => { state.query = event.target.value; render(); });
 document.querySelector('#sort-button').addEventListener('click', event => { state.sortByMovement = !state.sortByMovement; event.currentTarget.setAttribute('aria-pressed', state.sortByMovement); render(); });
 setupChartEvents();
+setupRankingEvents();
 initialize(fallbackText);
 loadGoogleSheet().catch(error => console.error('Google Sheets load failed:', error));
