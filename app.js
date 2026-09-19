@@ -48,6 +48,7 @@ const state = { query: '' };
 let rankingData = [];
 let chartData = [];
 let rankingSnapshots = [];
+let cpInfoByCode = new Map();
 let dates = [];
 let dashboardTitle = '순위 대시보드';
 
@@ -88,7 +89,12 @@ const palette = [
 
 let activeChartLimit = '10';
 let activeRankingLimit = '10';
+let activeRankTrendLimit = '10';
 let hoveredItemName = null;
+let rankHoveredItemName = null;
+let selectedMembers = [];
+let selectedDetailCp = null;
+let detailSortNewestFirst = true;
 
 function getItemColor(index) {
   return palette[index % palette.length];
@@ -199,6 +205,81 @@ function itemTrendChart(items, filterLimit) {
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="항목별 개수 추이 그래프">${gridHtml}${dateLabelsHtml}${linesHtml}</svg>`;
 }
 
+function rankTrendChart(items, filterLimit) {
+  let displayed = items;
+  if (filterLimit === '10') displayed = items.slice(0, 10);
+  else if (filterLimit === '20') displayed = items.slice(0, 20);
+
+  const width = 920;
+  const height = displayed.length > 20 ? 700 : displayed.length > 10 ? 520 : 400;
+  const left = 60, right = displayed.length > 20 ? 70 : 240, top = 35, bottom = 50;
+  const maxRank = Math.max(...displayed.flatMap(item => item.rankTrend ?? [item.rank]), 1);
+  const x0 = left, x1 = width - right;
+  const periodCount = Math.max(dates.length, 1);
+  const x = index => periodCount === 1 ? x0 : x0 + index / (periodCount - 1) * (x1 - x0);
+  const y = rank => top + ((rank - 1) / Math.max(maxRank - 1, 1)) * (height - top - bottom);
+  const tickValues = [...new Set([1, Math.ceil(maxRank * .25), Math.ceil(maxRank * .5), Math.ceil(maxRank * .75), maxRank])].sort((a, b) => a - b);
+  const gridHtml = tickValues.map(rank => {
+    const yPos = y(rank);
+    return `<line class="chart-grid" x1="${left}" x2="${x1}" y1="${yPos}" y2="${yPos}"/><text class="chart-axis" x="${left - 8}" y="${yPos}">${rank}위</text>`;
+  }).join('');
+
+  const labelStep = Math.max(1, Math.ceil(periodCount / 6));
+  const labelIndexes = dates.map((_, index) => index)
+    .filter(index => index === 0 || index === periodCount - 1 || index % labelStep === 0);
+  const dateLabelsHtml = labelIndexes.map(index => `
+    <line x1="${x(index)}" x2="${x(index)}" y1="${top}" y2="${height - bottom}" stroke="#d7dce7" stroke-dasharray="3,3"/>
+    <text class="chart-label date-title" x="${x(index)}" y="${height - 14}">${dates[index]}</text>
+  `).join('');
+
+  const showLabels = displayed.length <= 20;
+  const minGap = displayed.length > 10 ? 14 : 20;
+  const labelPositions = displayed.map(item => ({
+    name: item.name,
+    endY: y(item.rankTrend.at(-1)),
+    labelY: y(item.rankTrend.at(-1))
+  })).sort((a, b) => a.endY - b.endY);
+  if (showLabels) {
+    for (let i = 1; i < labelPositions.length; i++) {
+      labelPositions[i].labelY = Math.max(labelPositions[i].labelY, labelPositions[i - 1].labelY + minGap);
+    }
+    const overflow = labelPositions.at(-1)?.labelY - (height - bottom - 8);
+    if (overflow > 0) labelPositions.forEach(item => { item.labelY -= overflow; });
+  }
+  const labelYMap = new Map(labelPositions.map(item => [item.name, item.labelY]));
+
+  const linesHtml = displayed.map((item, index) => {
+    const color = getItemColor(index);
+    const isHovered = rankHoveredItemName === item.name;
+    const isOtherHovered = rankHoveredItemName && !isHovered;
+    const points = item.rankTrend.map((rank, rankIndex) => `${x(rankIndex)},${y(rank)}`).join(' ');
+    const endY = y(item.rankTrend.at(-1));
+    const labelY = labelYMap.get(item.name) ?? endY;
+    const label = showLabels ? `<text x="${x1 + 12}" y="${labelY + 4}" class="val-label" fill="${color}" font-weight="700">${item.name} (${item.rank}위)</text>` : '';
+    return `<g class="rank-trend-group" data-name="${item.name}" style="opacity:${isOtherHovered ? .12 : 1}">
+      <polyline points="${points}" fill="none" stroke="${color}" stroke-width="${isHovered ? 3.8 : 2.3}" stroke-linecap="round" stroke-linejoin="round"/>
+      ${item.rankTrend.map((rank, rankIndex) => `<circle cx="${x(rankIndex)}" cy="${y(rank)}" r="${rankIndex === item.rankTrend.length - 1 ? 3.8 : 2.2}" fill="${color}"><title>${dates[rankIndex]}: ${rank}위</title></circle>`).join('')}
+      ${label}
+    </g>`;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="CP별 순위 변동 그래프">${gridHtml}${dateLabelsHtml}${linesHtml}</svg>`;
+}
+
+function renderRankTrend() {
+  let displayed = chartData;
+  if (activeRankTrendLimit === '10') displayed = chartData.slice(0, 10);
+  else if (activeRankTrendLimit === '20') displayed = chartData.slice(0, 20);
+  document.querySelector('#rank-trend-graph').innerHTML = rankTrendChart(chartData, activeRankTrendLimit);
+  document.querySelector('#rank-trend-legend').innerHTML = displayed.map((item, index) => `
+    <button type="button" class="legend-pill ${rankHoveredItemName === item.name ? 'active' : ''}" data-name="${item.name}">
+      <span class="legend-color" style="background-color:${getItemColor(index)}"></span>
+      <span class="legend-name">${item.name}</span>
+      <span class="legend-val">${item.rank}위</span>
+    </button>
+  `).join('');
+}
+
 function renderChartLegend(displayedItems) {
   const legendEl = document.querySelector('#chart-legend');
   if (!legendEl) return;
@@ -294,6 +375,36 @@ function setupChartEvents() {
   });
 }
 
+function setupRankTrendEvents() {
+  const filterGroup = document.querySelector('#rank-trend-filter-group');
+  const graph = document.querySelector('#rank-trend-graph');
+  const legend = document.querySelector('#rank-trend-legend');
+
+  filterGroup.addEventListener('click', event => {
+    const btn = event.target.closest('.filter-chip');
+    if (!btn) return;
+    filterGroup.querySelectorAll('.filter-chip').forEach(item => item.classList.remove('active'));
+    btn.classList.add('active');
+    activeRankTrendLimit = btn.dataset.count;
+    rankHoveredItemName = null;
+    renderRankTrend();
+  });
+
+  for (const element of [graph, legend]) {
+    element.addEventListener('mouseover', event => {
+      const target = event.target.closest('[data-name]');
+      if (!target || rankHoveredItemName === target.dataset.name) return;
+      rankHoveredItemName = target.dataset.name;
+      renderRankTrend();
+    });
+    element.addEventListener('mouseleave', () => {
+      if (!rankHoveredItemName) return;
+      rankHoveredItemName = null;
+      renderRankTrend();
+    });
+  }
+}
+
 
 const SHEET_ID = '1KYIp9NPtnEp5LISgJVBEPPNCIseCivPSVRRj2uQrBcA';
 const SHEET_URL = name => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
@@ -351,12 +462,14 @@ function buildSheetData(rows) {
   for (const row of dataRows) {
     for (let c = 1; c + 2 < maxCols; c += 3) {
       const forwardCode = String(header[c] ?? '').trim();
+      const reverseCode = String(header[c + 1] ?? '').trim();
       const backwardCode = String(header[c + 2] ?? '').trim();
       if (!forwardCode || !backwardCode || /합계|리버스/i.test(forwardCode)) continue;
 
       const pairKey = [forwardCode, backwardCode].sort().join('|');
       const current = running.get(pairKey) ?? {
         name: forwardCode,
+        reverseName: reverseCode,
         backwardName: backwardCode,
         forward: 0,
         reverse: 0,
@@ -397,19 +510,19 @@ function renderMemberStats(cpInfoRows, latestSnapshot) {
   if (!el) return;
 
   const members = new Map();
-  const infoByCode = new Map();
+  cpInfoByCode = new Map();
   for (const row of cpInfoRows) {
     const code = String(row[0] ?? '').trim();
     const left = String(row[1] ?? '').trim();
     const right = String(row[3] ?? '').trim();
     if (!code || !left || !right || /cp|멤버/i.test(code)) continue;
-    infoByCode.set(code, { left, right });
+    cpInfoByCode.set(code, { left, right });
     if (!members.has(left)) members.set(left, { total: 0, left: 0, right: 0 });
     if (!members.has(right)) members.set(right, { total: 0, left: 0, right: 0 });
   }
 
   for (const cp of latestSnapshot.values) {
-    const info = infoByCode.get(cp.name);
+    const info = cpInfoByCode.get(cp.name);
     if (!info) continue;
     const { left, right } = info;
     const total = cp.value;
@@ -428,6 +541,118 @@ function renderMemberStats(cpInfoRows, latestSnapshot) {
     const rightPct = sum ? x.right / sum * 100 : 0;
     return `<tr><td>${name}</td><td>${formatNumber.format(x.total)}</td><td>${leftPct.toFixed(1)}%</td><td>${rightPct.toFixed(1)}%</td></tr>`;
   }).join('');
+}
+
+const memberAvatarFiles = {
+  '카르멘': 'members/carmen.svg',
+  '지우': 'members/jiwoo.svg',
+  '유하': 'members/yuha.svg',
+  '스텔라': 'members/stella.svg',
+  '주은': 'members/juun.svg',
+  '에이나': 'members/aina.svg',
+  '이안': 'members/ian.svg',
+  '예온': 'members/yeon.svg'
+};
+
+function findSelectedPair() {
+  if (selectedMembers.length !== 2) return null;
+  const selected = [...selectedMembers].sort().join('|');
+  return rankingSnapshots.at(-1)?.values.find(item => {
+    const info = cpInfoByCode.get(item.name);
+    return info && [info.left, info.right].sort().join('|') === selected;
+  }) ?? null;
+}
+
+function renderDetailTable() {
+  const body = document.querySelector('#detail-table-body');
+  const pair = findSelectedPair();
+  if (!pair || !selectedDetailCp) {
+    body.innerHTML = '<tr><td colspan="3" class="detail-empty">CP를 선택하면 데이터가 표시됩니다.</td></tr>';
+    return;
+  }
+
+  let rows = rankingSnapshots.map(snapshot => {
+    const item = snapshot.values.find(value => value.name === pair.name && value.backwardName === pair.backwardName);
+    const ranking = snapshot.ranking.find(value => value.name === selectedDetailCp);
+    const value = selectedDetailCp === pair.name
+      ? item.forward + item.reverse
+      : item.backward + item.reverse;
+    return { date: snapshot.date, value, rank: ranking?.rank ?? '-' };
+  });
+  if (detailSortNewestFirst) rows = rows.reverse();
+  body.innerHTML = rows.map(row => `<tr><td>${row.date}</td><td>${formatNumber.format(row.value)}</td><td>${row.rank}위</td></tr>`).join('');
+}
+
+function renderPairDetail() {
+  const detail = document.querySelector('#pair-detail');
+  const ratio = document.querySelector('#pair-ratio');
+  const buttons = document.querySelector('#detail-cp-buttons');
+  const pair = findSelectedPair();
+  detail.hidden = !pair;
+  if (!pair) return;
+
+  const total = pair.forward + pair.reverse + pair.backward;
+  const parts = [
+    { className: 'forward', label: pair.name, value: pair.forward },
+    { className: 'reverse', label: pair.reverseName || '리버시블', value: pair.reverse },
+    { className: 'backward', label: pair.backwardName, value: pair.backward }
+  ].map(part => ({ ...part, percent: total ? part.value / total * 100 : 0 }));
+
+  ratio.innerHTML = `
+    <div class="ratio-bar">
+      ${parts.map(part => `<div class="ratio-segment ${part.className}" style="flex:${part.value || .001}" title="${part.label} ${part.percent.toFixed(1)}%">${part.percent >= 8 ? `${part.percent.toFixed(1)}%` : ''}</div>`).join('')}
+    </div>
+    <div class="ratio-summary">
+      ${parts.map(part => `<span><strong>${part.label}</strong><br>${formatNumber.format(part.value)} · ${part.percent.toFixed(1)}%</span>`).join('')}
+    </div>`;
+
+  buttons.innerHTML = [pair.name, pair.backwardName].map(code => `
+    <button type="button" class="detail-cp-button ${selectedDetailCp === code ? 'active' : ''}" data-cp="${code}">${code}</button>
+  `).join('');
+  renderDetailTable();
+}
+
+function renderMemberPicker() {
+  const memberOrder = ['카르멘', '지우', '유하', '스텔라', '주은', '에이나', '이안', '예온'];
+  const grid = document.querySelector('#member-picker-grid');
+  grid.innerHTML = memberOrder.map(name => `
+    <button type="button" class="member-card ${selectedMembers.includes(name) ? 'selected' : ''}" data-member="${name}" aria-pressed="${selectedMembers.includes(name)}">
+      <img src="${memberAvatarFiles[name]}" alt="${name} 아바타" />
+      <span>${name}</span>
+    </button>
+  `).join('');
+}
+
+function setupDetailEvents() {
+  const grid = document.querySelector('#member-picker-grid');
+  grid.addEventListener('click', event => {
+    const card = event.target.closest('.member-card');
+    if (!card) return;
+    const name = card.dataset.member;
+    if (selectedMembers.includes(name)) {
+      selectedMembers = selectedMembers.filter(member => member !== name);
+    } else if (selectedMembers.length < 2) {
+      selectedMembers.push(name);
+    } else {
+      selectedMembers = [selectedMembers[1], name];
+    }
+    selectedDetailCp = null;
+    renderMemberPicker();
+    renderPairDetail();
+  });
+
+  document.querySelector('#detail-cp-buttons').addEventListener('click', event => {
+    const button = event.target.closest('.detail-cp-button');
+    if (!button) return;
+    selectedDetailCp = button.dataset.cp;
+    renderPairDetail();
+  });
+
+  document.querySelector('#detail-sort-button').addEventListener('click', event => {
+    detailSortNewestFirst = !detailSortNewestFirst;
+    event.currentTarget.textContent = detailSortNewestFirst ? '최신순' : '오래된 순';
+    renderDetailTable();
+  });
 }
 
 function selectRankingMonth(index) {
@@ -496,29 +721,39 @@ async function loadGoogleSheet() {
   const latestRanking = rankingSnapshots.at(-1)?.ranking ?? [];
   chartData = latestRanking.map(item => ({
     ...item,
-    trend: rankingSnapshots.map(snapshot => snapshot.ranking.find(x => x.name === item.name)?.value ?? 0)
+    trend: rankingSnapshots.map(snapshot => snapshot.ranking.find(x => x.name === item.name)?.value ?? 0),
+    rankTrend: rankingSnapshots.map(snapshot => snapshot.ranking.find(x => x.name === item.name)?.rank ?? snapshot.ranking.length)
   }));
   dates = rankingSnapshots.map(snapshot => snapshot.date);
   dashboardTitle = '핱페스 포타 개수 순위';
   setupMonthPicker();
   selectRankingMonth(rankingSnapshots.length - 1);
   renderSummary();
+  renderRankTrend();
   renderMemberStats(infoRows, rankingSnapshots.at(-1));
+  renderMemberPicker();
 }
 
 function initialize(text) {
   const parsed = parseSource(text);
   rankingData = parsed.data;
-  chartData = parsed.data;
+  chartData = parsed.data.map(item => ({
+    ...item,
+    rankTrend: [item.previousRank ?? item.rank, item.rank]
+  }));
   dates = parsed.dates;
   dashboardTitle = parsed.title;
   renderSummary();
+  renderRankTrend();
   render();
 }
 
 document.querySelector('#search').addEventListener('input', event => { state.query = event.target.value; render(); });
 setupChartEvents();
+setupRankTrendEvents();
 setupRankingEvents();
 setupPageNavigation();
+setupDetailEvents();
+renderMemberPicker();
 initialize(fallbackText);
 loadGoogleSheet().catch(error => console.error('Google Sheets load failed:', error));
