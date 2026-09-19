@@ -44,8 +44,10 @@ const fallbackText = `핱페스 포타 개수 순위
 19. 댠얀 32`;
 
 const formatNumber = new Intl.NumberFormat('ko-KR');
-const state = { query: '', sortByMovement: false };
+const state = { query: '' };
 let rankingData = [];
+let chartData = [];
+let rankingSnapshots = [];
 let dates = [];
 let dashboardTitle = '순위 대시보드';
 
@@ -106,8 +108,9 @@ function itemTrendChart(items, filterLimit) {
   let displayed = items;
   if (filterLimit === '5') displayed = items.slice(0, 5);
   else if (filterLimit === '10') displayed = items.slice(0, 10);
+  else if (filterLimit === '20') displayed = items.slice(0, 20);
 
-  const width = 920, height = 400;
+  const width = 920, height = displayed.length > 10 ? 520 : 400;
   const left = 60, right = 240, top = 35, bottom = 50;
 
   const allVals = displayed.flatMap(i => i.trend);
@@ -136,7 +139,7 @@ function itemTrendChart(items, filterLimit) {
     <text class="chart-label date-title" x="${x(index)}" y="${height - 14}">${dates[index]}</text>
   `).join('');
 
-  const minGap = 20;
+  const minGap = displayed.length > 10 ? 14 : 20;
   const minY = top + 10;
   const maxY = height - bottom - 10;
 
@@ -218,7 +221,6 @@ function renderChartLegend(displayedItems) {
 
 function render() {
   let items = rankingData.filter(item => item.name.toLowerCase().includes(state.query.toLowerCase()));
-  if (state.sortByMovement) items = [...items].sort((a, b) => Math.abs(change(b) ?? 0) - Math.abs(change(a) ?? 0));
   const totalCount = items.length;
   if (activeRankingLimit !== 'all') items = items.slice(0, Number(activeRankingLimit));
   document.querySelector('#ranking-body').innerHTML = items.map(item => `<tr><td class="rank">${item.rank}</td><td class="item-name">${item.name}</td><td class="value">${formatNumber.format(item.value)}</td><td>${movement(item)}</td></tr>`).join('');
@@ -240,14 +242,14 @@ function setupRankingEvents() {
 }
 
 function renderSummary() {
-  let displayedItems = rankingData;
-  if (activeChartLimit === '5') displayedItems = rankingData.slice(0, 5);
-  else if (activeChartLimit === '10') displayedItems = rankingData.slice(0, 10);
+  let displayedItems = chartData;
+  if (activeChartLimit === '5') displayedItems = chartData.slice(0, 5);
+  else if (activeChartLimit === '10') displayedItems = chartData.slice(0, 10);
+  else if (activeChartLimit === '20') displayedItems = chartData.slice(0, 20);
 
-  document.querySelector('#overview-graph').innerHTML = itemTrendChart(rankingData, activeChartLimit);
+  document.querySelector('#overview-graph').innerHTML = itemTrendChart(chartData, activeChartLimit);
   renderChartLegend(displayedItems);
   document.querySelector('#page-title').textContent = dashboardTitle;
-  document.querySelector('#updated-at').textContent = dates.at(-1) ? `최근 집계 ${dates.at(-1)}` : '';
 }
 
 function setupChartEvents() {
@@ -370,6 +372,7 @@ function buildSheetData(rows) {
 
     snapshots.push({
       date: normalizeDate(row[0]),
+      dateKey: String(row[0]).trim().slice(0, 7),
       values: [...running.values()].map(item => ({ ...item }))
     });
   }
@@ -427,6 +430,58 @@ function renderMemberStats(cpInfoRows, latestSnapshot) {
   }).join('');
 }
 
+function selectRankingMonth(index) {
+  const currentSnapshot = rankingSnapshots[index];
+  if (!currentSnapshot) return;
+
+  const previous = rankingSnapshots[index - 1]?.ranking ?? [];
+  const previousByName = new Map(previous.map(item => [item.name, item]));
+  rankingData = currentSnapshot.ranking.map(item => ({
+    ...item,
+    previousRank: previousByName.get(item.name)?.rank ?? null
+  }));
+
+  const monthInput = document.querySelector('#ranking-month');
+  if (monthInput) monthInput.value = currentSnapshot.dateKey;
+  document.querySelector('#updated-at').textContent = `집계 ${currentSnapshot.date}`;
+  render();
+}
+
+function setupMonthPicker() {
+  const monthInput = document.querySelector('#ranking-month');
+  if (!monthInput || !rankingSnapshots.length) return;
+
+  monthInput.min = rankingSnapshots[0].dateKey;
+  monthInput.max = rankingSnapshots.at(-1).dateKey;
+  monthInput.disabled = false;
+  monthInput.addEventListener('change', event => {
+    const index = rankingSnapshots.findIndex(snapshot => snapshot.dateKey === event.target.value);
+    if (index >= 0) selectRankingMonth(index);
+    else event.target.value = rankingSnapshots.at(-1).dateKey;
+  });
+}
+
+function setupPageNavigation() {
+  const tabs = [...document.querySelectorAll('.page-tab')];
+  const views = [...document.querySelectorAll('[data-page-view]')];
+  for (const tab of tabs) {
+    tab.addEventListener('click', () => {
+      const page = tab.dataset.page;
+      tabs.forEach(item => {
+        const active = item === tab;
+        item.classList.toggle('active', active);
+        item.setAttribute('aria-selected', String(active));
+      });
+      views.forEach(view => {
+        const active = view.dataset.pageView === page;
+        view.hidden = !active;
+        view.classList.toggle('active', active);
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+}
+
 async function loadGoogleSheet() {
   const [rankingRes, infoRes] = await Promise.all([
     fetch(SHEET_URL('포타 개수')),
@@ -435,28 +490,26 @@ async function loadGoogleSheet() {
   if (!rankingRes.ok || !infoRes.ok) throw new Error('Google Sheets를 불러오지 못했습니다.');
 
   const [rankingText, infoText] = await Promise.all([rankingRes.text(), infoRes.text()]);
-  const snapshots = calculateRankingSnapshots(buildSheetData(parseCsv(rankingText)));
+  rankingSnapshots = calculateRankingSnapshots(buildSheetData(parseCsv(rankingText)));
   const infoRows = parseCsv(infoText);
 
-  const previous = snapshots.at(-2)?.ranking ?? [];
-  const current = snapshots.at(-1)?.ranking ?? [];
-  const previousByName = new Map(previous.map(item => [item.name, item]));
-
-  rankingData = current.map(item => ({
+  const latestRanking = rankingSnapshots.at(-1)?.ranking ?? [];
+  chartData = latestRanking.map(item => ({
     ...item,
-    previousRank: previousByName.get(item.name)?.rank ?? null,
-    trend: snapshots.map(snapshot => snapshot.ranking.find(x => x.name === item.name)?.value ?? 0)
+    trend: rankingSnapshots.map(snapshot => snapshot.ranking.find(x => x.name === item.name)?.value ?? 0)
   }));
-  dates = snapshots.map(snapshot => snapshot.date);
+  dates = rankingSnapshots.map(snapshot => snapshot.date);
   dashboardTitle = '핱페스 포타 개수 순위';
+  setupMonthPicker();
+  selectRankingMonth(rankingSnapshots.length - 1);
   renderSummary();
-  render();
-  renderMemberStats(infoRows, snapshots.at(-1));
+  renderMemberStats(infoRows, rankingSnapshots.at(-1));
 }
 
 function initialize(text) {
   const parsed = parseSource(text);
   rankingData = parsed.data;
+  chartData = parsed.data;
   dates = parsed.dates;
   dashboardTitle = parsed.title;
   renderSummary();
@@ -464,8 +517,8 @@ function initialize(text) {
 }
 
 document.querySelector('#search').addEventListener('input', event => { state.query = event.target.value; render(); });
-document.querySelector('#sort-button').addEventListener('click', event => { state.sortByMovement = !state.sortByMovement; event.currentTarget.setAttribute('aria-pressed', state.sortByMovement); render(); });
 setupChartEvents();
 setupRankingEvents();
+setupPageNavigation();
 initialize(fallbackText);
 loadGoogleSheet().catch(error => console.error('Google Sheets load failed:', error));
