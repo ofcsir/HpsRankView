@@ -19,7 +19,7 @@
 
     <main id="top" class="page-shell">
       <section class="hero" aria-labelledby="page-title">
-        <h1 id="page-title">핱페스 포스타입 순위</h1>
+        <h1 id="page-title">핱페스 포타 개수 순위</h1>
       </section>
 
       <section class="controls" aria-label="순위 목록 필터">
@@ -30,17 +30,19 @@
         <button id="sort-button" type="button" aria-pressed="false">변동 큰 순</button>
       </section>
 
-      <section class="ranking-section" aria-labelledby="ranking-title">
-        <div class="section-heading">
-          <div>
-            <h2 id="ranking-title">현재 순위</h2>
+      <section class="ranking-section" aria-label="CP 순위">
+        <div class="section-heading ranking-heading">
+          <div class="ranking-filter-group" id="ranking-filter-group" role="group" aria-label="순위 목록 보기 필터">
+            <button type="button" class="filter-chip active" data-count="10">TOP 10</button>
+            <button type="button" class="filter-chip" data-count="20">TOP 20</button>
+            <button type="button" class="filter-chip" data-count="all">전체</button>
           </div>
           <span id="result-count" class="result-count"></span>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>순위</th><th>항목</th><th>개수</th><th>순위 변동</th><th>기간 추이</th></tr>
+              <tr><th>순위</th><th>항목</th><th>개수</th><th>순위 변동</th></tr>
             </thead>
             <tbody id="ranking-body"></tbody>
           </table>
@@ -77,6 +79,6 @@
       </section>
     </main>
     <footer>© <span id="year"></span> RankView</footer>
-    <script src="app.js?v=20260919-2"></script>
+    <script src="app.js?v=20260919-3"></script>
   </body>
 </html>
