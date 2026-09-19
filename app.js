@@ -81,7 +81,7 @@ function parseSource(text) {
 }
 
 const palette = [
-  '#3056d3', '#059669', '#d97706', '#dc2626', '#8b5cf6',
+  '#A9D9F8', '#FEC4DF', '#059669', '#d97706', '#8b5cf6',
   '#06b6d4', '#ec4899', '#f97316', '#6366f1', '#14b8a6',
   '#b91c1c', '#047857', '#b45309', '#6d28d9', '#0369a1',
   '#be185d', '#c2410c', '#4338ca', '#0f766e'
@@ -115,6 +115,8 @@ function itemTrendChart(items, filterLimit) {
   if (filterLimit === '5') displayed = items.slice(0, 5);
   else if (filterLimit === '10') displayed = items.slice(0, 10);
   else if (filterLimit === '20') displayed = items.slice(0, 20);
+  const recentDates = dates.slice(-8);
+  displayed = displayed.map(item => ({ ...item, trend: item.trend.slice(-8) }));
 
   const width = 920, height = displayed.length > 10 ? 520 : 400;
   const left = 60, right = 240, top = 35, bottom = 50;
@@ -127,7 +129,7 @@ function itemTrendChart(items, filterLimit) {
 
   const x0 = left;
   const x1 = width - right;
-  const periodCount = Math.max(dates.length, 1);
+  const periodCount = Math.max(recentDates.length, 1);
   const x = index => periodCount === 1 ? x0 : x0 + index / (periodCount - 1) * (x1 - x0);
   const y = val => top + (chartMax - val) / range * (height - top - bottom);
 
@@ -138,11 +140,11 @@ function itemTrendChart(items, filterLimit) {
   }).join('');
 
   const labelStep = Math.max(1, Math.ceil(periodCount / 6));
-  const labelIndexes = dates.map((_, index) => index)
+  const labelIndexes = recentDates.map((_, index) => index)
     .filter(index => index === 0 || index === periodCount - 1 || index % labelStep === 0);
   const dateLabelsHtml = labelIndexes.map(index => `
     <line class="date-guide" x1="${x(index)}" x2="${x(index)}" y1="${top - 10}" y2="${height - bottom}" stroke="#d7dce7" stroke-dasharray="3,3"/>
-    <text class="chart-label date-title" x="${x(index)}" y="${height - 14}">${dates[index]}</text>
+    <text class="chart-label date-title" x="${x(index)}" y="${height - 14}">${recentDates[index]}</text>
   `).join('');
 
   const minGap = displayed.length > 10 ? 14 : 20;
@@ -194,7 +196,7 @@ function itemTrendChart(items, filterLimit) {
     return `
       <g class="item-trend-group ${isHovered ? 'hovered' : ''}" data-name="${item.name}" style="opacity: ${opacity}; transition: opacity 0.2s ease;">
         <polyline points="${item.trend.map((value, index) => `${x(index)},${y(value)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" class="trend-path"/>
-        ${item.trend.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="${index === item.trend.length - 1 ? (isHovered ? 5.5 : 4) : 2.6}" fill="${color}" class="trend-dot"><title>${dates[index]}: ${formatNumber.format(value)}</title></circle>`).join('')}
+        ${item.trend.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="${index === item.trend.length - 1 ? (isHovered ? 5.5 : 4) : 2.6}" fill="${color}" class="trend-dot"><title>${recentDates[index]}: ${formatNumber.format(value)}</title></circle>`).join('')}
         <text x="${x0 - 8}" y="${y0 + 4}" text-anchor="end" class="val-label start-val" fill="#65708a">${formatNumber.format(v0)}</text>
         ${leaderLine}
         <text x="${x1 + 12}" y="${adjustedLabelY + 4}" text-anchor="start" class="val-label end-val" fill="${color}" font-weight="${isHovered ? '800' : '650'}">${item.name} (${formatNumber.format(v1)})</text>
@@ -539,7 +541,20 @@ function renderMemberStats(cpInfoRows, latestSnapshot) {
     const sum = x.left + x.right;
     const leftPct = sum ? x.left / sum * 100 : 0;
     const rightPct = sum ? x.right / sum * 100 : 0;
-    return `<tr><td>${name}</td><td>${formatNumber.format(x.total)}</td><td>${leftPct.toFixed(1)}%</td><td>${rightPct.toFixed(1)}%</td></tr>`;
+    return `<article class="personal-stat-card">
+      <img src="${memberAvatarFiles[name]}" alt="${name} 아바타" />
+      <div class="personal-stat-content">
+        <h3><span>${name}</span><strong>${formatNumber.format(x.total)}</strong></h3>
+        <div class="personal-ratio-row">
+          <span class="personal-ratio-label">왼</span>
+          <div class="personal-ratio-bar" aria-label="${name} 왼 ${leftPct.toFixed(1)}%, 른 ${rightPct.toFixed(1)}%">
+            <div class="personal-ratio-left" style="flex:${leftPct || .001}">${leftPct >= 12 ? `${leftPct.toFixed(1)}%` : ''}</div>
+            <div class="personal-ratio-right" style="flex:${rightPct || .001}">${rightPct >= 12 ? `${rightPct.toFixed(1)}%` : ''}</div>
+          </div>
+          <span class="personal-ratio-label">른</span>
+        </div>
+      </div>
+    </article>`;
   }).join('');
 }
 
@@ -729,7 +744,6 @@ async function loadGoogleSheet() {
   setupMonthPicker();
   selectRankingMonth(rankingSnapshots.length - 1);
   renderSummary();
-  renderRankTrend();
   renderMemberStats(infoRows, rankingSnapshots.at(-1));
   renderMemberPicker();
 }
@@ -744,13 +758,11 @@ function initialize(text) {
   dates = parsed.dates;
   dashboardTitle = parsed.title;
   renderSummary();
-  renderRankTrend();
   render();
 }
 
 document.querySelector('#search').addEventListener('input', event => { state.query = event.target.value; render(); });
 setupChartEvents();
-setupRankTrendEvents();
 setupRankingEvents();
 setupPageNavigation();
 setupDetailEvents();
