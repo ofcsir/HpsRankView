@@ -73,9 +73,19 @@
       </div>
 
       <div class="page-view" data-page-view="trend" hidden>
-        <section class="view-heading" aria-labelledby="trend-page-title">
+        <section class="overview-chart" aria-labelledby="rank-trend-title">
+          <div class="section-heading">
+            <div><h2 id="rank-trend-title">순위 변동</h2></div>
+            <div class="chart-filter-group" id="rank-trend-filter-group" role="group" aria-label="순위 변동 그래프 보기 필터">
+              <button type="button" class="filter-chip active" data-count="10">TOP 10</button>
+              <button type="button" class="filter-chip" data-count="20">TOP 20</button>
+              <button type="button" class="filter-chip" data-count="all">전체</button>
+            </div>
+          </div>
+          <div id="rank-trend-graph" class="overview-graph rank-trend-graph" aria-live="polite"></div>
+          <div id="rank-trend-legend" class="chart-legend" aria-label="순위 변동 범례"></div>
         </section>
-        <section class="overview-chart" aria-label="누적 포타 개수 추이">
+        <section class="overview-chart" aria-label="항목별 개수 추이">
           <div class="section-heading">
             <div><h2>누적 포타 개수 추이</h2></div>
             <div class="chart-filter-group" id="chart-filter-group" role="group" aria-label="추이 그래프 보기 필터">
@@ -90,13 +100,32 @@
       </div>
 
       <div class="page-view" data-page-view="detail" hidden>
-        <section class="view-heading detail-placeholder" aria-labelledby="detail-page-title">
+        <section class="view-heading" aria-labelledby="detail-page-title">
           <h1 id="detail-page-title">상세 통계</h1>
-          <p>상세 통계는 다음 작업에서 추가할 예정입니다.</p>
+        </section>
+        <section class="detail-panel" aria-labelledby="member-picker-title">
+          <h2 id="member-picker-title">멤버 2명을 선택해 주세요</h2>
+          <div id="member-picker-grid" class="member-picker-grid"></div>
+
+          <div id="pair-detail" class="pair-detail" hidden>
+            <div id="pair-ratio" class="pair-ratio" aria-label="선택한 두 멤버의 CP 비율"></div>
+            <div class="detail-table-controls">
+              <div id="detail-cp-buttons" class="detail-cp-buttons" role="group" aria-label="CP 선택"></div>
+              <button id="detail-sort-button" type="button">최신순</button>
+            </div>
+            <div class="table-wrap detail-table-wrap">
+              <table>
+                <thead><tr><th>달</th><th>누적 개수</th><th>순위</th></tr></thead>
+                <tbody id="detail-table-body">
+                  <tr><td colspan="3" class="detail-empty">CP를 선택하면 데이터가 표시됩니다.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </section>
       </div>
     </main>
     <footer>© <span id="year"></span> RankView</footer>
-    <script src="app.js?v=20260919-4"></script>
+    <script src="app.js?v=20260919-5"></script>
   </body>
 </html>
