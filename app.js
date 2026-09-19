@@ -559,14 +559,14 @@ function renderMemberStats(cpInfoRows, latestSnapshot) {
 }
 
 const memberAvatarFiles = {
-  '카르멘': 'members/carmen.svg',
-  '지우': 'members/jiwoo.svg',
-  '유하': 'members/yuha.svg',
-  '스텔라': 'members/stella.svg',
-  '주은': 'members/juun.svg',
-  '에이나': 'members/aina.svg',
-  '이안': 'members/ian.svg',
-  '예온': 'members/yeon.svg'
+  '카르멘': 'members/carmen.jpeg',
+  '지우': 'members/jiwoo.jpeg',
+  '유하': 'members/yuha.jpeg',
+  '스텔라': 'members/stella.jpeg',
+  '주은': 'members/juun.jpeg',
+  '에이나': 'members/aina.jpeg',
+  '이안': 'members/ian.jpeg',
+  '예온': 'members/yeon.jpeg'
 };
 
 function findSelectedPair() {
