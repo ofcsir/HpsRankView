@@ -97,10 +97,10 @@ body { margin: 0; color: var(--ink); background: var(--bg); font-family: Pretend
   .overview-graph { min-height: 260px; overflow-x: auto; }
   .overview-graph svg { width: 760px; max-width: none; height: 330px; }
   .controls { align-items: stretch; flex-direction: row; }
-  .search-field { flex: 1 1 auto; }
+  .search-field { flex: 0 1 42%; min-width: 0; }
   .search-field input { width: 100%; min-width: 0; }
-  .month-field { flex: 0 0 148px; }
-  .month-field input { width: 100%; min-width: 0; padding: 0 8px; }
+  .month-field { flex: 1 1 0; min-width: 0; }
+  .month-field input { width: 100%; max-width: 100%; min-width: 0; padding: 0 8px; }
   .section-heading { align-items: start; flex-direction: column; gap: 8px; }
   .ranking-heading { flex-direction: row; align-items: center; }
   .filter-chip { padding: 0 9px; font-size: .75rem; }
