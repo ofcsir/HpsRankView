@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://h2hrps-rank.vercel.app/sitemap.xml
